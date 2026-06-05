@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>飲水機設施點檢與維護系統 / ระบบตรวจสอบตู้กดน้ำ</title>
   <link rel="manifest" href="./manifest.json">
+  
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  
   <script src="https://cdn.tailwindcss.com"></script>  
   <script>
     // 🎯 1. 點檢流水帳寫入 Webhook 網址
@@ -55,9 +58,18 @@
     </div>
     
     <div class="flat-card border-l-4 border-sky-500 py-3">
-      <span class="text-[9px] text-slate-400 font-black block mb-0.5 uppercase tracking-widest">Device ID</span>
-      <div id="displayId" class="text-xl font-black text-slate-800 font-mono italic tracking-tighter text-red-500 leading-tight">請掃描 QR Code</div>
+      <div class="flex justify-between items-center gap-2 mb-1">
+        <div>
+          <span class="text-[9px] text-slate-400 font-black block uppercase tracking-widest">Device ID</span>
+          <div id="displayId" class="text-xl font-black text-slate-800 font-mono italic tracking-tighter text-red-500 leading-tight">請掃描 QR Code</div>
+        </div>
+        <button onclick="startScanner()" class="bg-sky-600 text-white text-[11px] font-black px-3 py-2 rounded-lg flex items-center gap-1 shadow-sm active:scale-95 transition-transform shrink-0">
+          📷 掃描二維碼
+        </button>
+      </div>
       <p id="locationDisplay" class="text-xs text-slate-600 font-black mt-0.5">請先掃描設備上的二維碼以載入資料</p>
+      
+      <div id="reader" class="hidden w-full mt-3 rounded-lg overflow-hidden border border-slate-200 shadow-inner"></div>
     </div>
     
     <div id="reportCard" class="force-hide flat-card border-l-4 border-indigo-500 bg-indigo-50/30 py-2.5 px-3.5">
@@ -71,8 +83,7 @@
     <div id="mainUI" class="force-hide">
       <div class="flat-card">
         <h3 id="lblConfirmTitle" class="font-black text-slate-700 text-sm mb-4 border-b border-slate-50 pb-2 italic">📋 飲水機現場確認</h3>
-        <ul class="space-y-3 mb-2" id="checkItems">
-          </ul>
+        <ul class="space-y-3 mb-2" id="checkItems"></ul>
       </div>
       
       <div class="mt-4 space-y-2.5">
@@ -82,11 +93,17 @@
       
       <div id="abnormalForm" class="hidden flat-card border-2 border-red-500 bg-red-50/50 mt-4">
         <h4 id="lblAbnormalTitle" class="text-red-700 font-black text-xs mb-3">請點選現場異常項目：</h4>
-        <div id="abnormalChips" class="flex flex-wrap gap-2 mb-4">
-          </div>
+        <div id="abnormalChips" class="flex flex-wrap gap-2 mb-4"></div>
         <textarea id="reason" placeholder="其他補充說明..." class="w-full p-3 rounded-xl border border-slate-200 h-20 mb-4 text-xs bg-white outline-none"></textarea>
         <button id="btnConfirmAbnormal" onclick="submitData('異常')" class="w-full bg-red-600 text-white py-3 rounded-xl font-black text-sm shadow-md">確認送出異常回報</button>
       </div>
+    </div>
+
+    <div id="lockUI" class="hidden flat-card text-center py-8 border-2 border-yellow-500 bg-yellow-50/50 my-4 rounded-2xl">
+      <p class="text-5xl mb-3">🛑</p>
+      <p id="lockTitle" class="text-base font-black text-slate-800">此設備本月已完成點檢</p>
+      <p id="lockSub" class="text-xs text-slate-500 mt-1">ระบบได้รับการตรวจสอบในเดือนนี้แล้ว</p>
+      <p id="lockIdDisplay" class="text-xs text-slate-600 font-mono font-bold bg-white/90 py-1.5 px-4 rounded-xl inline-block border border-slate-200 mt-3 shadow-sm">--</p>
     </div>
   </main>
   
@@ -104,9 +121,14 @@
   let currentLang = "zh"; 
   let dbLocation = "茶水間"; 
   let dbStatusText = ""; 
+  let isSubmitting = false;
   
   let realPdfNameZh = "";
   let realPdfNameTh = "";
+
+  if (typeof window.wdDoneList === 'undefined') {
+    window.wdDoneList = new Set();
+  }
 
   const langPack = {
     zh: {
@@ -119,7 +141,8 @@
       abTitle: "請點選現場異常項目：", placeholderReason: "其他補充說明...", abSend: "確認送出異常回報",
       items: ["面板燈號、溫度顯示正常", "機體周邊與底部無漏水現象", "出水口保持清潔、無異物殘留", "接水盤排水順暢、無積水阻塞"],
       chips: ["面板無顯示", "機身漏水", "出水有異味", "接水盤阻塞"],
-      alertName: "請填寫姓名！", sending: "資料傳送中...", success: "點檢完成！資料已同步", fail: "後端同步失敗", netFail: "網路連線失敗", finish: "完成"
+      alertName: "請填寫姓名！", sending: "資料傳送中...", success: "點檢完成！資料已同步", fail: "後端同步失敗", netFail: "網路連線失敗", finish: "完成",
+      alreadyDone: "此設備本月已完成點檢"
     },
     th: {
       lblInspector: "ผู้ตรวจสอบ", placeholderInspector: "ใส่ชื่อของคุณ",
@@ -129,11 +152,70 @@
       viewReport: "🔍 คลิกเพื่อดูรายงานผลการตรวจสอบล่าสุด", confirmTitle: "📋 รายงานตรวจสอบตู้กดน้ำ",
       btnNormal: "🛡️ ทุกรายการปกติและส่งข้อมูล", btnAbnormal: "⚠️ พบสิ่งผิดปกติ? แจ้งซ่อม",
       abTitle: "โปรดเลือกรายการที่ผิดปกติ:", placeholderReason: "คำอธิบายเพิ่มเติม...", abSend: "ยืนยันการส่งรายงานผิดปกติ",
-      items: ["ไฟหน้าจอและอุณหภูมิแสดงผลปกติ", "ไม่มีน้ำรั่วซึมรอบตัวเครื่องและด้านล่าง", "หัวจ่ายน้ำสะอาด ไม่มีสิ่งแปลกปลอม", "ถาดรองน้ำระบายได้ดี ไม่มีน้ำขังอุดตัน"],
+      items: ["ไฟหน้าจอและอุณหภูมิ顯示正常", "ไม่มีน้ำรั่วซึมรอบตัวเครื่องและด้านล่าง", "หัวจ่ายน้ำสะอาด ไม่มีสิ่งแปลกปลอม", "ถาดรองน้ำระบายได้ดี ไม่มีน้ำขังอุดตัน"],
       chips: ["หน้าจอไม่แสดงผล", "น้ำรั่วซึม", "น้ำมีกลิ่นผิดปกติ", "ถาดรองน้ำอุดตัน"],
-      alertName: "กรุณาใส่ชื่อของคุณ!", sending: "กำลังส่งข้อมูล...", success: "เสร็จสิ้น! ข้อมูลบันทึกแล้ว", fail: "การส่งข้อมูลล้มเหลว", netFail: "การเชื่อมต่อเครือข่ายล้มเหลว", finish: "เสร็จสิ้น"
+      alertName: "กรุณาใส่ชื่อของคุณ!", sending: "กำลังส่งข้อมูล...", success: "เสร็จสิ้น! ข้อมูลบันทึกแล้ว", fail: "การส่งข้อมูลล้มเหลว", netFail: "การเชื่อมต่อเครือข่ายล้มเหลว", finish: "เสร็จสิ้น",
+      alreadyDone: "ระบบได้รับการตรวจสอบในเดือนนี้แล้ว"
     }
   };
+
+  function getInspectedKey(eqId) {
+    const now = new Date();
+    return `wd_done_${eqId}_${now.getFullYear()}_${now.getMonth() + 1}`;
+  }
+
+  function showLockedUI(eqId) {
+    document.getElementById('mainUI').classList.add('force-hide');
+    document.getElementById('lockUI').classList.remove('hidden');
+    document.getElementById('lockIdDisplay').innerText = eqId;
+    document.getElementById('lockTitle').innerText = langPack[currentLang].alreadyDone;
+  }
+
+  // 🛠️ 精準定位：如果是消防設備代號，自動秒轉至妳的消防點檢系統
+  function handleCrossSystemRedirect(cleanId) {
+    const upperId = cleanId.toUpperCase();
+    // 判斷消防常見編號前綴（如滅火器 DCP/CO2、消防栓 FH、緊急照明 EP）
+    if (upperId.includes("DCP") || upperId.includes("CO2") || upperId.includes("FH") || upperId.includes("EP")) {
+      alert("💡 偵測到此條碼屬於【消防設施】，系統將自動為您切換至消防點檢網頁！");
+      // 直接精準導向妳的消防專屬網站並帶入 ID 參數
+      window.location.href = "https://amyjacky1938-star.github.io/fire-check/?id=" + upperId;
+      return true;
+    }
+    return false;
+  }
+
+  // 📷 啟用內嵌相機與拆解
+  function startScanner() {
+    const readerDiv = document.getElementById('reader');
+    readerDiv.classList.remove('hidden');
+    
+    const html5QrCode = new Html5Qrcode("reader");
+    html5QrCode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 220 },
+      (decodedText) => {
+        html5QrCode.stop().then(() => {
+          readerDiv.classList.add('hidden');
+          let cleanId = decodedText.trim();
+          
+          if (cleanId.includes('eqId=')) {
+            cleanId = cleanId.split('eqId=')[1].split('&')[0];
+          } else if (cleanId.includes('id=')) {
+            cleanId = cleanId.split('id=')[1].split('&')[0];
+          } else if (cleanId.includes('/')) {
+            const parts = cleanId.split('/');
+            cleanId = parts[parts.length - 1];
+          }
+          
+          // 🛑 掃描時防呆跳轉
+          if (handleCrossSystemRedirect(cleanId)) return;
+          
+          window.location.href = window.location.origin + window.location.pathname + "?id=" + cleanId.toUpperCase();
+        });
+      },
+      (errorMessage) => { }
+    ).catch(err => alert("無法開啟相機：" + err));
+  }
 
   function parseExcelDate(serial) {
     if (!serial || isNaN(serial)) return serial;
@@ -181,6 +263,10 @@
     document.getElementById('btnConfirmAbnormal').innerText = p.abSend;
     document.getElementById('btnFinish').innerText = p.finish;
     
+    if (!document.getElementById('lockUI').classList.contains('hidden')) {
+      document.getElementById('lockTitle').innerText = p.alreadyDone;
+    }
+    
     const checkItemsUl = document.getElementById('checkItems');
     checkItemsUl.innerHTML = p.items.map(item => `
       <li class="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
@@ -205,16 +291,45 @@
     
     if (eqId) {
       const cleanEqId = eqId.trim().toUpperCase(); 
+      
+      // 🛑 網址輸入防呆：如果網址參數誤帶消防編號，立即直接跳轉
+      if (handleCrossSystemRedirect(cleanEqId)) return;
+
       document.getElementById('displayId').innerText = cleanEqId;
       document.getElementById('displayId').classList.remove('text-red-500');
       
       currentWorkType = cleanEqId.includes("WD") ? "常規點檢" : "清洗保養";
+
+      if (window.wdDoneList.has(cleanEqId) || localStorage.getItem(getInspectedKey(cleanEqId)) === 'true') {
+        showLockedUI(cleanEqId);
+        document.getElementById('reportCard').classList.remove('force-hide');
+        switchLang('zh');
+        try {
+          const res = await fetch(READ_API, { method: 'POST', body: JSON.stringify({}) });
+          const data = await res.json();
+          const list = data.deviceDetails || data.value || data || [];
+          const currentDevice = Array.isArray(list) ? list.find(item => {
+            const excelKey = (item["設備編號"] || item["設備編號 "] || "").toString().trim().toUpperCase();
+            return excelKey === cleanEqId;
+          }) : null;
+          if (currentDevice) {
+            realPdfNameZh = (currentDevice["最新報告網址"] || "").toString().trim();
+            realPdfNameTh = (currentDevice["最新報告網址_泰文"] || "").toString().trim();
+          }
+        } catch(e){}
+        return;
+      }
       
       try {
         const res = await fetch(READ_API, { method: 'POST', body: JSON.stringify({}) });
         const data = await res.json();
         const list = data.deviceDetails || data.value || data || [];
         
+        if (data.doneList && JSON.stringify(data.doneList).toUpperCase().includes(cleanEqId)) {
+          showLockedUI(cleanEqId);
+          return;
+        }
+
         const currentDevice = Array.isArray(list) ? list.find(item => {
           const excelKey = (item["設備編號"] || item["設備編號 "] || "").toString().trim().toUpperCase();
           return excelKey === cleanEqId;
@@ -280,12 +395,21 @@
   function showAbnormal() { document.getElementById('abnormalForm').classList.toggle('hidden'); }
   
   async function submitData(status) {
+    if (isSubmitting) return;
+
     const inspector = document.getElementById('inspector').value;
     if (!inspector) { alert(langPack[currentLang].alertName); return; }
     
     const currentId = document.getElementById('displayId').innerText;
     if (currentId === "請掃描 QR Code" || currentId === "") { return; }
+
+    if (window.wdDoneList.has(currentId)) {
+      alert('🛑 此設備剛才已完成點檢！');
+      showLockedUI(currentId);
+      return;
+    }
     
+    isSubmitting = true;
     localStorage.setItem('wd_inspector', inspector);
     
     let uploadReason = '無';
@@ -317,15 +441,26 @@
     try {
       const response = await fetch(WD_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (response.ok) { 
+        window.wdDoneList.add(currentId);
+        try { localStorage.setItem(getInspectedKey(currentId), 'true'); } catch(e) {}
+
         document.getElementById('statusIcon').innerText = "✅"; 
         document.getElementById('statusText').innerText = langPack[currentLang].success; 
+        
+        document.getElementById('btnFinish').onclick = () => {
+          document.getElementById('msg').classList.add('hidden');
+          showLockedUI(currentId);
+        };
       } else { 
         document.getElementById('statusIcon').innerText = "❌"; 
-        document.getElementById('statusText').innerText = langPack[currentLang].fail; 
+        document.getElementById('statusText').innerText = langPack[currentLang].fail;
+        isSubmitting = false;
       }
     } catch (e) { 
       document.getElementById('statusIcon').innerText = "❌"; 
-      document.getElementById('netFail').innerText = langPack[currentLang].netFail; 
+      alert(langPack[currentLang].netFail);
+      document.getElementById('msg').classList.add('hidden');
+      isSubmitting = false;
     }
   }
 </script>
