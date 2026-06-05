@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>飲水機設施點檢與維護系統 / ระบบตรวจสอบตู้กดน้ำ</title>
+  <link rel="manifest" href="./manifest.json">
   <script src="https://cdn.tailwindcss.com"></script>  
   <script>
     // 🎯 1. 點檢流水帳寫入 Webhook 網址
@@ -107,7 +108,6 @@
   let realPdfNameZh = "";
   let realPdfNameTh = "";
 
-  // 🎯 語系包設定（已更換第四個項目，移除熱水解鎖測試）
   const langPack = {
     zh: {
       lblInspector: "點檢執行人", placeholderInspector: "輸入姓名",
@@ -325,7 +325,7 @@
       }
     } catch (e) { 
       document.getElementById('statusIcon').innerText = "❌"; 
-      document.getElementById('statusText').innerText = langPack[currentLang].netFail; 
+      document.getElementById('netFail').innerText = langPack[currentLang].netFail; 
     }
   }
 </script>
