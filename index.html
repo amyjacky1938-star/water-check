@@ -45,6 +45,7 @@
   </header>
   
   <main class="px-4 mt-4">
+    <!-- 執行人卡片 -->
     <div class="flat-card flex items-center gap-4 py-4">
       <div class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold">👤</div>
       <div class="flex-1">
@@ -53,25 +54,29 @@
       </div>
     </div>
     
+    <!-- 設備編號讀取區 -->
     <div class="flat-card border-l-4 border-sky-500 py-3">
       <span class="text-[9px] text-slate-400 font-black block mb-0.5 uppercase tracking-widest">Device ID</span>
       <div id="displayId" class="text-xl font-black text-slate-800 font-mono italic tracking-tighter text-red-500 leading-tight">請掃描 QR Code</div>
       <p id="locationDisplay" class="text-xs text-slate-600 font-black mt-0.5">請先掃描設備上的二維碼以載入資料</p>
     </div>
     
+    <!-- 🎯 水質報告卡片（已拿掉「官方」字眼） -->
     <div id="reportCard" class="force-hide flat-card border-l-4 border-indigo-500 bg-indigo-50/30 py-2.5 px-3.5">
-      <h3 id="lblReportTitle" class="font-black text-slate-700 text-[10px] mb-0.5 italic">📄 官方水質檢驗報告</h3>
+      <h3 id="lblReportTitle" class="font-black text-slate-700 text-[10px] mb-0.5 italic">📄 水質合格檢驗報告</h3>
       <p id="statusDisplay" class="text-xs text-blue-700 font-black mb-2">最新檢測狀態：讀取中</p>
       <button id="btnViewReport" onclick="viewPdfReport()" class="block w-full bg-indigo-600 hover:bg-indigo-700 text-white text-center py-2 rounded-xl font-black text-[11px] shadow-md">
         🔍 點擊開啟最新一期檢驗報告
       </button>
     </div>
 
+    <!-- 🎯 點檢項目區塊 -->
     <div id="mainUI" class="force-hide">
       <div class="flat-card">
         <h3 id="lblConfirmTitle" class="font-black text-slate-700 text-sm mb-4 border-b border-slate-50 pb-2 italic">📋 飲水機現場確認</h3>
         <ul class="space-y-3 mb-2" id="checkItems">
-          </ul>
+          <!-- 項目會由底下的 JS 自動渲染 -->
+        </ul>
       </div>
       
       <div class="mt-4 space-y-2.5">
@@ -82,13 +87,15 @@
       <div id="abnormalForm" class="hidden flat-card border-2 border-red-500 bg-red-50/50 mt-4">
         <h4 id="lblAbnormalTitle" class="text-red-700 font-black text-xs mb-3">請點選現場異常項目：</h4>
         <div id="abnormalChips" class="flex flex-wrap gap-2 mb-4">
-          </div>
+          <!-- 異常按鈕由 JS 自動繪製 -->
+        </div>
         <textarea id="reason" placeholder="其他補充說明..." class="w-full p-3 rounded-xl border border-slate-200 h-20 mb-4 text-xs bg-white outline-none"></textarea>
         <button id="btnConfirmAbnormal" onclick="submitData('異常')" class="w-full bg-red-600 text-white py-3 rounded-xl font-black text-sm shadow-md">確認送出異常回報</button>
       </div>
     </div>
   </main>
   
+  <!-- 彈出提示視窗 -->
   <div id="msg" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-8 text-center">
     <div class="bg-white p-8 rounded-[32px] shadow-2xl w-full max-w-xs">
       <div id="statusIcon" class="text-5xl mb-4">✅</div>
@@ -107,13 +114,13 @@
   let realPdfNameZh = "";
   let realPdfNameTh = "";
 
-  // 🎯 語系包優化：泰文部分彻底移除任何中文對照字眼
+  // 🎯 語系包設定（已移除官方字眼、增加合格文字）
   const langPack = {
     zh: {
       lblInspector: "點檢執行人", placeholderInspector: "輸入姓名",
       scanQrPrompt: "請先掃描設備上的二維碼以載入資料",
       routine: "常規點檢", clean: "清洗保養", location: "正確位置：",
-      reportTitle: "📄 官方水質合格檢驗報告", statusText: "最新檢測狀態：",
+      reportTitle: "📄 水質合格檢驗報告", statusText: "最新檢測狀態：", passTag: " (合格)",
       viewReport: "🔍 點擊開啟最新一期檢驗報告", confirmTitle: "📋 飲水機現場確認",
       btnNormal: "🛡️ 項目皆正常並送出", btnAbnormal: "⚠️ 發現異常？填寫回報",
       abTitle: "請點選現場異常項目：", placeholderReason: "其他補充說明...", abSend: "確認送出異常回報",
@@ -123,9 +130,9 @@
     },
     th: {
       lblInspector: "ผู้ตรวจสอบ", placeholderInspector: "ใส่ชื่อของคุณ",
-      scanQrPrompt: "โปรดสแกนคิวอาร์โค้ดบนอุปกรณ์เพื่อโหลดข้อมูล",
+      scanQrPrompt: "โปรดสแกนคิวอาร์コードบนอุปกรณ์เพื่อโหลดข้อมูล",
       routine: "ตรวจสอบประจำ", clean: "ล้างบำรุงรักษา", location: "ตำแหน่งที่ถูกต้อง: ",
-      reportTitle: "📄 รายงานผลตรวจสอบคุณภาพน้ำอย่างเป็นทางการ", statusText: "สถานะล่าสุด: ",
+      reportTitle: "📄 รายงานผลตรวจสอบคุณภาพน้ำผ่านเกณฑ์", statusText: "สถานะล่าสุด: ", passTag: " (ผ่านเกณฑ์)",
       viewReport: "🔍 คลิกเพื่อดูรายงานผลการตรวจสอบล่าสุด", confirmTitle: "📋 รายงานตรวจสอบตู้กดน้ำ",
       btnNormal: "🛡️ ทุกรายการปกติและส่งข้อมูล", btnAbnormal: "⚠️ พบสิ่งผิดปกติ? แจ้งซ่อม",
       abTitle: "โปรดเลือกรายการที่ผิดปกติ:", placeholderReason: "คำอธิบายเพิ่มเติม...", abSend: "ยืนยันการส่งรายงานผิดปกติ",
@@ -159,33 +166,29 @@
       document.querySelector('.id-th').classList.remove('hidden');
     }
     
-    // 🎯 切換執行人標籤與欄位提示字
     document.getElementById('lblInspector').innerText = p.lblInspector;
     document.getElementById('inspector').placeholder = p.placeholderInspector;
     
-    // 🎯 切換位置與作業類型描述
     const displayType = lang === 'zh' ? currentWorkType : (currentWorkType === "常規點檢" ? p.routine : p.clean);
     document.getElementById('locationDisplay').innerHTML = `${p.location}${dbLocation} <span class="text-blue-600 font-black ml-1">(${displayType})</span>`;
     
-    // 🎯 切換水質報告卡片區塊文字
     document.getElementById('lblReportTitle').innerText = p.reportTitle;
     document.getElementById('btnViewReport').innerText = p.viewReport;
+    
+    // 🎯 日期動態加上 (合格) / (ผ่านเกณฑ์) 標籤
     if (dbStatusText) {
-      document.getElementById('statusDisplay').innerHTML = `${p.statusText}<span class="text-blue-700 font-black">${dbStatusText}</span>`;
+      document.getElementById('statusDisplay').innerHTML = `${p.statusText}<span class="text-blue-700 font-black">${dbStatusText}${p.passTag}</span>`;
     }
     
-    // 🎯 切換主點檢表文字與按鈕
     document.getElementById('lblConfirmTitle').innerText = p.confirmTitle;
     document.getElementById('btnSubmitNormal').innerText = p.btnNormal;
     document.getElementById('btnSubmitAbnormal').innerText = p.btnAbnormal;
     
-    // 🎯 切換異常回報表單文字
     document.getElementById('lblAbnormalTitle').innerText = p.abTitle;
     document.getElementById('reason').placeholder = p.placeholderReason;
     document.getElementById('btnConfirmAbnormal').innerText = p.abSend;
     document.getElementById('btnFinish').innerText = p.finish;
     
-    // 🎯 重新渲染點檢項目清單
     const checkItemsUl = document.getElementById('checkItems');
     checkItemsUl.innerHTML = p.items.map(item => `
       <li class="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
@@ -194,7 +197,6 @@
       </li>
     `).join('');
     
-    // 🎯 重新渲染異常選項標籤
     const chipsDiv = document.getElementById('abnormalChips');
     chipsDiv.innerHTML = p.chips.map(chip => {
       const isSelected = selectedAbnormalItems.has(chip);
@@ -252,7 +254,6 @@
 
   async function viewPdfReport() {
     const targetFileName = currentLang === 'zh' ? realPdfNameZh : realPdfNameTh;
-    
     if (!targetFileName) {
       alert(currentLang === 'zh' ? "Excel 中此設備無登記報告檔案名稱！" : "ไม่มีชื่อไฟล์รายงานใน Excel");
       return;
