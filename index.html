@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>飲水機設施點檢與維護系統 / ระบบตรวจสอบตู้กดน้ำ</title>
+  <script src="https://cdn.tailwindcss.com"></script>  
+  <script>
+    // 🎯 1. 點檢流水帳寫入 Webhook 網址
+    const WD_WEBHOOK_URL = "https://default5e08b912309f4900b9e179fae11d8e.2a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/d65203c470b14fbcae00bf92f94c6e24/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=rUjGB2rN4flxMtdgL4WLAxdR5EQX8QiOm6n1SXuGOsA";
+    
+    // 🎯 2. 讀取 Excel【設備清單表】的 API 網址
+    const READ_API = "https://default5e08b912309f4900b9e179fae11d8e.2a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/2df80d493fc4495ea6adf73ad0e31595/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=vhkAk7R7RCFqWsLgtwaCsbJwulc5XIrtM0lOUToabTM";
+    
+    // 🎯 3. 下載 OneDrive 檔案的中轉 API
+    const DOWNLOAD_FILE_API = "https://default5e08b912309f4900b9e179fae11d8e.2a.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/92b8d989449d4f70983d1365e3c4c3d8/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=xnVNjU5EcnH8a9uu2_zYO7cvQGJe2mNh7rupl-2mvwQ";
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f8fafc; }
+    .wd-gradient { background: linear-gradient(135deg, #0c4a6e 0%, #0284c7 100%); }
+    .flat-card { background: #ffffff; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); padding: 1.25rem; margin-bottom: 0.75rem; border: 1px solid #f1f5f9; }
+    .chip { transition: all 0.2s; border: 1.5px solid #fee2e2; cursor: pointer; }
+    .chip.selected { background-color: #dc2626; color: white; border-color: #dc2626; }
+    .force-hide { display: none !important; }
+  </style>
+</head>
+<body class="max-w-md mx-auto pb-10">
+  <header class="wd-gradient pt-6 pb-6 px-6 rounded-b-[32px] shadow-lg sticky top-0 z-50">
+    <div class="flex justify-between items-start mb-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-white rounded-2xl flex items-center justify-center p-1.5 shadow-inner overflow-hidden">
+          <img src="https://cdn.phototourl.com/free/2026-05-12-aea1713e-4f2a-46d6-a473-93fb2a3448ba.png" alt="Jarllytec LOGO" class="w-full h-full object-contain">
+        </div>
+        <div>
+          <h1 class="text-lg font-black text-white leading-none id-zh">飲水機點檢與維護系統</h1>
+          <h1 class="text-lg font-bold text-white leading-none id-th hidden">ระบบตรวจสอบตู้กดน้ำ</h1>
+          <p class="text-sky-200 text-[9px] font-bold uppercase mt-1">Jarllytec Occupational Safety Office</p>
+        </div>
+      </div>
+      <div class="flex gap-1 bg-black/20 p-1 rounded-xl text-[10px] font-bold text-white">
+        <button id="langZh" onclick="switchLang('zh')" class="px-2 py-1 rounded-lg bg-white text-sky-900 shadow">繁中</button>
+        <button id="langTh" onclick="switchLang('th')" class="px-2 py-1 rounded-lg">ไทย</button>
+      </div>
+    </div>
+  </header>
+  
+  <main class="px-4 mt-4">
+    <div class="flat-card flex items-center gap-4 py-4">
+      <div class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold">👤</div>
+      <div class="flex-1">
+        <label id="lblInspector" class="text-[9px] text-slate-400 font-black uppercase">點檢執行人</label>
+        <input type="text" id="inspector" placeholder="輸入姓名" class="w-full text-base font-bold bg-transparent outline-none text-slate-700">
+      </div>
+    </div>
+    
+    <div class="flat-card border-l-4 border-sky-500 py-3">
+      <span class="text-[9px] text-slate-400 font-black block mb-0.5 uppercase tracking-widest">Device ID</span>
+      <div id="displayId" class="text-xl font-black text-slate-800 font-mono italic tracking-tighter text-red-500 leading-tight">請掃描 QR Code</div>
+      <p id="locationDisplay" class="text-xs text-slate-600 font-black mt-0.5">請先掃描設備上的二維碼以載入資料</p>
+    </div>
+    
+    <div id="reportCard" class="force-hide flat-card border-l-4 border-indigo-500 bg-indigo-50/30 py-2.5 px-3.5">
+      <h3 id="lblReportTitle" class="font-black text-slate-700 text-[10px] mb-0.5 italic">📄 官方水質檢驗報告</h3>
+      <p id="statusDisplay" class="text-xs text-blue-700 font-black mb-2">最新檢測狀態：讀取中</p>
+      <button id="btnViewReport" onclick="viewPdfReport()" class="block w-full bg-indigo-600 hover:bg-indigo-700 text-white text-center py-2 rounded-xl font-black text-[11px] shadow-md">
+        🔍 點擊開啟最新一期檢驗報告
+      </button>
+    </div>
+
+    <div id="mainUI" class="force-hide">
+      <div class="flat-card">
+        <h3 id="lblConfirmTitle" class="font-black text-slate-700 text-sm mb-4 border-b border-slate-50 pb-2 italic">📋 飲水機現場確認</h3>
+        <ul class="space-y-3 mb-2" id="checkItems">
+          </ul>
+      </div>
+      
+      <div class="mt-4 space-y-2.5">
+        <button id="btnSubmitNormal" onclick="submitData('正常')" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl font-black text-sm shadow-md transition-all">🛡️ 項目皆正常並送出</button>
+        <button id="btnSubmitAbnormal" onclick="showAbnormal()" class="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-xl font-black text-sm shadow-md transition-all">⚠️ 發現異常？填寫回報</button>
+      </div>
+      
+      <div id="abnormalForm" class="hidden flat-card border-2 border-red-500 bg-red-50/50 mt-4">
+        <h4 id="lblAbnormalTitle" class="text-red-700 font-black text-xs mb-3">請點選現場異常項目：</h4>
+        <div id="abnormalChips" class="flex flex-wrap gap-2 mb-4">
+          </div>
+        <textarea id="reason" placeholder="其他補充說明..." class="w-full p-3 rounded-xl border border-slate-200 h-20 mb-4 text-xs bg-white outline-none"></textarea>
+        <button id="btnConfirmAbnormal" onclick="submitData('異常')" class="w-full bg-red-600 text-white py-3 rounded-xl font-black text-sm shadow-md">確認送出異常回報</button>
+      </div>
+    </div>
+  </main>
+  
+  <div id="msg" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-50 p-8 text-center">
+    <div class="bg-white p-8 rounded-[32px] shadow-2xl w-full max-w-xs">
+      <div id="statusIcon" class="text-5xl mb-4">✅</div>
+      <div id="statusText" class="text-xl font-black text-slate-800 italic">傳送成功</div>
+      <button id="btnFinish" onclick="location.reload()" class="w-full bg-sky-600 text-white py-4 rounded-2xl font-black text-base mt-6">完成</button>
+    </div>
+  </div>
+
+<script>
+  let selectedAbnormalItems = new Set();
+  let currentWorkType = "常規點檢"; 
+  let currentLang = "zh"; 
+  let dbLocation = "茶水間"; 
+  let dbStatusText = ""; 
+  
+  let realPdfNameZh = "";
+  let realPdfNameTh = "";
+
+  // 🎯 語系包優化：泰文部分彻底移除任何中文對照字眼
+  const langPack = {
+    zh: {
+      lblInspector: "點檢執行人", placeholderInspector: "輸入姓名",
+      scanQrPrompt: "請先掃描設備上的二維碼以載入資料",
+      routine: "常規點檢", clean: "清洗保養", location: "正確位置：",
+      reportTitle: "📄 官方水質合格檢驗報告", statusText: "最新檢測狀態：",
+      viewReport: "🔍 點擊開啟最新一期檢驗報告", confirmTitle: "📋 飲水機現場確認",
+      btnNormal: "🛡️ 項目皆正常並送出", btnAbnormal: "⚠️ 發現異常？填寫回報",
+      abTitle: "請點選現場異常項目：", placeholderReason: "其他補充說明...", abSend: "確認送出異常回報",
+      items: ["面板燈號、溫度顯示正常", "機體周邊與底部無漏水現象", "出水口保持清潔、無異物殘留", "熱水安全解鎖功能測試正常"],
+      chips: ["面板無顯示", "機身漏水", "出水有異味"],
+      alertName: "請填寫姓名！", sending: "資料傳送中...", success: "點檢完成！資料已同步", fail: "後端同步失敗", netFail: "網路連線失敗", finish: "完成"
+    },
+    th: {
+      lblInspector: "ผู้ตรวจสอบ", placeholderInspector: "ใส่ชื่อของคุณ",
+      scanQrPrompt: "โปรดสแกนคิวอาร์โค้ดบนอุปกรณ์เพื่อโหลดข้อมูล",
+      routine: "ตรวจสอบประจำ", clean: "ล้างบำรุงรักษา", location: "ตำแหน่งที่ถูกต้อง: ",
+      reportTitle: "📄 รายงานผลตรวจสอบคุณภาพน้ำอย่างเป็นทางการ", statusText: "สถานะล่าสุด: ",
+      viewReport: "🔍 คลิกเพื่อดูรายงานผลการตรวจสอบล่าสุด", confirmTitle: "📋 รายงานตรวจสอบตู้กดน้ำ",
+      btnNormal: "🛡️ ทุกรายการปกติและส่งข้อมูล", btnAbnormal: "⚠️ พบสิ่งผิดปกติ? แจ้งซ่อม",
+      abTitle: "โปรดเลือกรายการที่ผิดปกติ:", placeholderReason: "คำอธิบายเพิ่มเติม...", abSend: "ยืนยันการส่งรายงานผิดปกติ",
+      items: ["ไฟหน้าจอและอุณหภูมิแสดงผลปกติ", "ไม่มีน้ำรั่วซึมรอบตัวเครื่องและด้านล่าง", "หัวจ่ายน้ำสะอาด ไม่มีสิ่งแปลกปลอม", "ระบบปลดล็อกน้ำร้อนเพื่อความปลอดภัยทำงานปกติ"],
+      chips: ["หน้าจอไม่แสดงผล", "น้ำรั่วซึม", "น้ำมีกลิ่นผิดปกติ"],
+      alertName: "กรุณาใส่ชื่อของคุณ!", sending: "กำลังส่งข้อมูล...", success: "เสร็จสิ้น! ข้อมูลบันทึกแล้ว", fail: "การส่งข้อมูลล้มเหลว", netFail: "การเชื่อมต่อเครือข่ายล้มเหลว", finish: "เสร็จสิ้น"
+    }
+  };
+
+  function parseExcelDate(serial) {
+    if (!serial || isNaN(serial)) return serial;
+    const num = parseInt(serial, 10);
+    const utc_days  = num - 25569;
+    const utc_value = utc_days * 86400;
+    const date_info = new Date(utc_value * 1000);
+    return `${date_info.getFullYear()}/${date_info.getMonth() + 1}/${date_info.getDate()}`;
+  }
+
+  function switchLang(lang) {
+    currentLang = lang;
+    const p = langPack[lang];
+    
+    document.getElementById('langZh').className = lang === 'zh' ? "px-2 py-1 rounded-lg bg-white text-sky-900 shadow" : "px-2 py-1 rounded-lg";
+    document.getElementById('langTh').className = lang === 'th' ? "px-2 py-1 rounded-lg bg-white text-sky-900 shadow" : "px-2 py-1 rounded-lg";
+    
+    if(lang === 'zh') {
+      document.querySelector('.id-zh').classList.remove('hidden');
+      document.querySelector('.id-th').classList.add('hidden');
+    } else {
+      document.querySelector('.id-zh').classList.add('hidden');
+      document.querySelector('.id-th').classList.remove('hidden');
+    }
+    
+    // 🎯 切換執行人標籤與欄位提示字
+    document.getElementById('lblInspector').innerText = p.lblInspector;
+    document.getElementById('inspector').placeholder = p.placeholderInspector;
+    
+    // 🎯 切換位置與作業類型描述
+    const displayType = lang === 'zh' ? currentWorkType : (currentWorkType === "常規點檢" ? p.routine : p.clean);
+    document.getElementById('locationDisplay').innerHTML = `${p.location}${dbLocation} <span class="text-blue-600 font-black ml-1">(${displayType})</span>`;
+    
+    // 🎯 切換水質報告卡片區塊文字
+    document.getElementById('lblReportTitle').innerText = p.reportTitle;
+    document.getElementById('btnViewReport').innerText = p.viewReport;
+    if (dbStatusText) {
+      document.getElementById('statusDisplay').innerHTML = `${p.statusText}<span class="text-blue-700 font-black">${dbStatusText}</span>`;
+    }
+    
+    // 🎯 切換主點檢表文字與按鈕
+    document.getElementById('lblConfirmTitle').innerText = p.confirmTitle;
+    document.getElementById('btnSubmitNormal').innerText = p.btnNormal;
+    document.getElementById('btnSubmitAbnormal').innerText = p.btnAbnormal;
+    
+    // 🎯 切換異常回報表單文字
+    document.getElementById('lblAbnormalTitle').innerText = p.abTitle;
+    document.getElementById('reason').placeholder = p.placeholderReason;
+    document.getElementById('btnConfirmAbnormal').innerText = p.abSend;
+    document.getElementById('btnFinish').innerText = p.finish;
+    
+    // 🎯 重新渲染點檢項目清單
+    const checkItemsUl = document.getElementById('checkItems');
+    checkItemsUl.innerHTML = p.items.map(item => `
+      <li class="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
+        <span class="text-sky-500 font-black">✓</span>
+        <span class="text-[12px] font-bold text-slate-600">${item}</span>
+      </li>
+    `).join('');
+    
+    // 🎯 重新渲染異常選項標籤
+    const chipsDiv = document.getElementById('abnormalChips');
+    chipsDiv.innerHTML = p.chips.map(chip => {
+      const isSelected = selectedAbnormalItems.has(chip);
+      return `<button type="button" onclick="toggleChip(this)" class="chip px-3 py-2 bg-white rounded-lg text-[11px] font-bold text-red-600 ${isSelected ? 'selected' : ''}">${chip}</button>`;
+    }).join('');
+  }
+
+  window.onload = async () => {
+    const savedName = localStorage.getItem('wd_inspector');
+    if (savedName) document.getElementById('inspector').value = savedName;
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const eqId = urlParams.get('eqId') || urlParams.get('id');
+    
+    if (eqId) {
+      const cleanEqId = eqId.trim().toUpperCase(); 
+      document.getElementById('displayId').innerText = cleanEqId;
+      document.getElementById('displayId').classList.remove('text-red-500');
+      
+      currentWorkType = cleanEqId.includes("WD") ? "常規點檢" : "清洗保養";
+      
+      try {
+        const res = await fetch(READ_API, { method: 'POST', body: JSON.stringify({}) });
+        const data = await res.json();
+        const list = data.deviceDetails || data.value || data || [];
+        
+        const currentDevice = Array.isArray(list) ? list.find(item => {
+          const excelKey = (item["設備編號"] || item["設備編號 "] || "").toString().trim().toUpperCase();
+          return excelKey === cleanEqId;
+        }) : null;
+        
+        if (currentDevice) {
+          dbLocation = (currentDevice["正確位置"] || currentDevice["正確位置 "] || currentDevice["廠區位置"] || "茶水間").toString().trim();
+          
+          let rawStatus = currentDevice["最新檢測狀態"] || currentDevice["最新檢測狀態 "];
+          dbStatusText = parseExcelDate(rawStatus) || "已公告";
+          
+          realPdfNameZh = (currentDevice["最新報告網址"] || "").toString().trim();
+          realPdfNameTh = (currentDevice["最新報告網址_泰文"] || "").toString().trim();
+          
+          document.getElementById('mainUI').classList.remove('force-hide');
+          document.getElementById('reportCard').classList.remove('force-hide');
+          switchLang('zh'); 
+        } else {
+          document.getElementById('locationDisplay').innerHTML = `<span class="text-red-500 font-bold">⚠️ Excel 清單中找不到此飲水機編號 [${cleanEqId}]</span>`;
+        }
+      } catch (e) { 
+        document.getElementById('locationDisplay').innerText = `暫時無法連線後端 API 獲取設備資料`; 
+      }
+    } else {
+      document.getElementById('displayId').innerText = "請掃描 QR Code";
+      document.getElementById('locationDisplay').innerHTML = `<span class='text-red-500 font-bold'>⚠️ ${langPack[currentLang].scanQrPrompt}</span>`;
+    }
+  };
+
+  async function viewPdfReport() {
+    const targetFileName = currentLang === 'zh' ? realPdfNameZh : realPdfNameTh;
+    
+    if (!targetFileName) {
+      alert(currentLang === 'zh' ? "Excel 中此設備無登記報告檔案名稱！" : "ไม่มีชื่อไฟล์รายงานใน Excel");
+      return;
+    }
+    
+    alert(currentLang === 'zh' ? `正在從雲端調閱：\n[${targetFileName}]` : `กำลังดึงข้อมูลรายงาน：\n[${targetFileName}]`);
+    
+    try {
+      const response = await fetch(DOWNLOAD_FILE_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: targetFileName })
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, '_blank'); 
+      } else { 
+        alert(`調閱檔案失敗！請確認該檔案已上傳至專用資料夾中。\n檔名應為：${targetFileName}`); 
+      }
+    } catch(e) { 
+      alert(langPack[currentLang].netFail); 
+    }
+  }
+
+  function toggleChip(btn) {
+    const item = btn.innerText;
+    if (selectedAbnormalItems.has(item)) { selectedAbnormalItems.delete(item); btn.classList.remove('selected'); }
+    else { selectedAbnormalItems.add(item); btn.classList.add('selected'); }
+  }
+  
+  function showAbnormal() { document.getElementById('abnormalForm').classList.toggle('hidden'); }
+  
+  async function submitData(status) {
+    const inspector = document.getElementById('inspector').value;
+    if (!inspector) { alert(langPack[currentLang].alertName); return; }
+    
+    const currentId = document.getElementById('displayId').innerText;
+    if (currentId === "請掃描 QR Code" || currentId === "") { return; }
+    
+    localStorage.setItem('wd_inspector', inspector);
+    
+    let uploadReason = '無';
+    if(status === '異常') {
+      let mappedChips = [];
+      selectedAbnormalItems.forEach(val => {
+        if (val === "หน้าจอไม่แสดงผล" || val === "面板無顯示") mappedChips.push("面板無顯示");
+        if (val === "น้ำรั่วซึม" || val === "機身漏水") mappedChips.push("機身漏水");
+        if (val === "น้ำมีกลิ่นผิดปกติ" || val === "出水有異味") mappedChips.push("出水有異味");
+      });
+      if (mappedChips.length === 0) mappedChips = Array.from(selectedAbnormalItems);
+      uploadReason = mappedChips.join(',') + ' ' + document.getElementById('reason').value;
+    }
+
+    const payload = { 
+      equipmentId: currentId, 
+      inspector, 
+      status: status === '正常' ? '正常' : '異常', 
+      maintenanceItem: currentWorkType, 
+      reason: uploadReason, 
+      location: dbLocation, 
+      timestamp: new Date().toLocaleDateString('zh-TW') 
+    };
+    
+    document.getElementById('msg').classList.remove('hidden');
+    document.getElementById('statusText').innerText = langPack[currentLang].sending;
+    
+    try {
+      const response = await fetch(WD_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (response.ok) { 
+        document.getElementById('statusIcon').innerText = "✅"; 
+        document.getElementById('statusText').innerText = langPack[currentLang].success; 
+      } else { 
+        document.getElementById('statusIcon').innerText = "❌"; 
+        document.getElementById('statusText').innerText = langPack[currentLang].fail; 
+      }
+    } catch (e) { 
+      document.getElementById('statusIcon').innerText = "❌"; 
+      document.getElementById('statusText').innerText = langPack[currentLang].netFail; 
+    }
+  }
+</script>
+</body>
+</html>
