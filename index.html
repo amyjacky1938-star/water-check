@@ -432,7 +432,12 @@
       maintenanceItem: currentWorkType, 
       reason: uploadReason, 
       location: dbLocation, 
-      timestamp: new Date().toLocaleDateString('zh-TW') 
+      timestamp: (() => {
+  const now = new Date();
+  const tzoffset = now.getTimezoneOffset() * 60000; // 取得當地時區偏移量
+  const localISOTime = (new Date(now.getTime() - tzoffset)).toISOString().slice(0, -1);
+  return localISOTime;
+})() 
     };
     
     document.getElementById('msg').classList.remove('hidden');
